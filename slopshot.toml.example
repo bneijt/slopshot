@@ -1,0 +1,9 @@
+# Name of the git remote to publish snapshots to.
+remote = "github"
+
+# Local branch whose committed state is snapshotted.
+# Defaults to "main".
+# local_branch = "main"
+
+# Branch on the remote. Defaults to the value of local_branch.
+# branch = "main"
