@@ -120,6 +120,33 @@ impl Fixture {
         );
         log.lines().map(str::to_owned).collect()
     }
+
+    fn message_at(&self, remote: &Path, revision: &str) -> String {
+        self.git_ok(remote, &["log", "-1", "--format=%B", revision])
+    }
+
+    fn remote_message(&self, remote: &Path, branch: &str) -> String {
+        self.message_at(remote, &format!("refs/heads/{branch}"))
+    }
+
+    fn assert_snapshot_message(
+        &self,
+        remote: &Path,
+        branch: &str,
+        number: u64,
+        local_commit: &str,
+    ) {
+        let subject = self.git_ok(
+            remote,
+            &["log", "-1", "--format=%s", &format!("refs/heads/{branch}")],
+        );
+        assert_eq!(subject, format!("Snapshot {number}"));
+        let message = self.remote_message(remote, branch);
+        assert!(
+            message.contains(&format!("ref {local_commit}")),
+            "snapshot body does not contain ref {local_commit}:\n{message}"
+        );
+    }
 }
 
 fn stdout(output: &Output) -> String {
@@ -160,11 +187,12 @@ fn publishes_initial_snapshot_and_is_idempotent() {
 
     let first = fixture.slopshot(&work, &[]);
     assert_success(&first);
-    assert!(stdout(&first).contains("Snapshot #1"));
+    assert!(stdout(&first).contains("Snapshot 1"));
     assert!(stdout(&first).contains(&head));
 
     let subjects = fixture.remote_subjects(&remote, "main");
-    assert_eq!(subjects, vec![format!("Snapshot #1 {head}")]);
+    assert_eq!(subjects, vec!["Snapshot 1".to_owned()]);
+    fixture.assert_snapshot_message(&remote, "main", 1, &head);
 
     // The published tree is exactly the local tree.
     let local_tree = fixture.git_ok(&work, &["rev-parse", "HEAD^{tree}"]);
@@ -199,8 +227,9 @@ fn chains_a_new_snapshot_for_a_new_local_commit() {
     let first_snapshot = fixture.remote_head(&remote);
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![format!("Snapshot #1 {first_local}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 1, &first_local);
 
     let second_local = fixture.commit_file(
         &work,
@@ -210,17 +239,17 @@ fn chains_a_new_snapshot_for_a_new_local_commit() {
     );
     let second = fixture.slopshot(&work, &[]);
     assert_success(&second);
-    assert!(stdout(&second).contains("Snapshot #2"));
+    assert!(stdout(&second).contains("Snapshot 2"));
 
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![
-            format!("Snapshot #2 {second_local}"),
-            format!("Snapshot #1 {first_local}"),
-        ]
+        vec!["Snapshot 2".to_owned(), "Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 2, &second_local);
+    let first_message = fixture.message_at(&remote, "refs/heads/main^");
+    assert!(first_message.contains(&format!("ref {first_local}")));
 
-    // Snapshot #2 has Snapshot #1 as its parent and the current local tree.
+    // Snapshot 2 has Snapshot 1 as its parent and the current local tree.
     let parent = fixture.git_ok(&remote, &["rev-parse", "refs/heads/main^"]);
     assert_eq!(parent, first_snapshot);
     let local_tree = fixture.git_ok(&work, &["rev-parse", "HEAD^{tree}"]);
@@ -269,8 +298,9 @@ fn refuses_foreign_history_and_restart_replaces_it() {
     assert_success(&restarted);
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![format!("Snapshot #1 {head}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 1, &head);
 
     // The foreign commit is gone entirely, not just orphaned on top of.
     let count = fixture.git_ok(&remote, &["rev-list", "--count", "refs/heads/main"]);
@@ -289,7 +319,9 @@ fn dry_run_publishes_nothing() {
     let output = fixture.slopshot(&work, &["--dry-run"]);
     assert_success(&output);
     assert!(stdout(&output).contains("Dry run"));
-    assert!(stdout(&output).contains(&format!("Snapshot #1 {head}")));
+    assert!(stdout(&output).contains("Snapshot 1"));
+    assert!(stdout(&output).contains(&head));
+    assert!(stdout(&output).contains(&format!("ref {head}")));
 
     let remote_tip = fixture.git(&remote, &["rev-parse", "--verify", "refs/heads/main"]);
     assert!(!remote_tip.status.success());
@@ -327,8 +359,9 @@ branch = "public"
     assert_success(&output);
     assert_eq!(
         fixture.remote_subjects(&remote, "public"),
-        vec![format!("Snapshot #1 {head}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "public", 1, &head);
 }
 
 #[test]
@@ -367,8 +400,9 @@ fn runs_from_a_subdirectory_using_the_repo_root_config() {
     assert_success(&output);
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![format!("Snapshot #1 {head}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 1, &head);
 }
 
 #[test]
@@ -399,12 +433,14 @@ fn dry_run_reports_the_next_snapshot_without_pushing() {
     let second_local = fixture.commit_file(&work, "hello.txt", "hello\nworld\n", "next commit");
     let output = fixture.slopshot(&work, &["--dry-run"]);
     assert_success(&output);
-    assert!(stdout(&output).contains(&format!("Snapshot #2 {second_local}")));
+    assert!(stdout(&output).contains("Snapshot 2"));
+    assert!(stdout(&output).contains(&second_local));
     assert_eq!(fixture.remote_head(&remote), first_snapshot);
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![format!("Snapshot #1 {first_local}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 1, &first_local);
 }
 
 #[test]
@@ -425,8 +461,9 @@ fn restart_resets_an_existing_snapshot_chain() {
     assert_success(&output);
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![format!("Snapshot #1 {second_local}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 1, &second_local);
     let count = fixture.git_ok(&remote, &["rev-list", "--count", "refs/heads/main"]);
     assert_eq!(count, "1");
 }
@@ -446,8 +483,9 @@ fn does_not_push_tags_even_with_follow_tags_configured() {
     assert_success(&output);
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![format!("Snapshot #1 {head}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 1, &head);
     let tags = fixture.git_ok(
         &remote,
         &["for-each-ref", "--format=%(refname)", "refs/tags"],
@@ -488,8 +526,9 @@ fn supports_a_custom_config_path() {
     assert_success(&output);
     assert_eq!(
         fixture.remote_subjects(&remote, "main"),
-        vec![format!("Snapshot #1 {head}")]
+        vec!["Snapshot 1".to_owned()]
     );
+    fixture.assert_snapshot_message(&remote, "main", 1, &head);
 }
 
 #[test]
@@ -502,4 +541,52 @@ fn reports_when_run_outside_a_git_work_tree() {
     let output = fixture.slopshot(&plain, &[]);
     assert_failure(&output);
     assert!(stderr(&output).contains("not inside a git work tree"));
+}
+
+#[test]
+fn recognizes_legacy_snapshots_with_the_hash_in_the_subject() {
+    let fixture = Fixture::new();
+    let remote = fixture.init_remote();
+    let work = fixture.init_work();
+    fixture.add_remote(&work, &remote);
+    fixture.write_config(&work, r#"remote = "github""#);
+
+    let first_local = fixture.commit_file(&work, "hello.txt", "hello\n", "initial commit");
+    let tree = fixture.git_ok(&work, &["rev-parse", "HEAD^{tree}"]);
+    let legacy_snapshot = fixture.git_ok(
+        &work,
+        &[
+            "commit-tree",
+            &tree,
+            "-m",
+            &format!("Snapshot #1 {first_local}"),
+        ],
+    );
+    fixture.git_ok(
+        &work,
+        &[
+            "push",
+            "--quiet",
+            remote.to_str().unwrap(),
+            &format!("{legacy_snapshot}:refs/heads/main"),
+        ],
+    );
+
+    let no_op = fixture.slopshot(&work, &[]);
+    assert_success(&no_op);
+    assert!(stdout(&no_op).contains("Already up to date"));
+
+    let second_local = fixture.commit_file(&work, "hello.txt", "hello\nworld\n", "next commit");
+    let output = fixture.slopshot(&work, &[]);
+    assert_success(&output);
+    assert_eq!(
+        fixture.remote_subjects(&remote, "main"),
+        vec![
+            "Snapshot 2".to_owned(),
+            format!("Snapshot #1 {first_local}"),
+        ]
+    );
+    fixture.assert_snapshot_message(&remote, "main", 2, &second_local);
+    let parent = fixture.git_ok(&remote, &["rev-parse", "refs/heads/main^"]);
+    assert_eq!(parent, legacy_snapshot);
 }

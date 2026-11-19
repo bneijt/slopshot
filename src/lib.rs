@@ -17,7 +17,7 @@ pub struct Options {
     pub config_path: Option<PathBuf>,
     /// Report what would happen without creating or pushing anything.
     pub dry_run: bool,
-    /// Replace the remote branch with a fresh `Snapshot #1` root commit.
+    /// Replace the remote branch with a fresh `Snapshot 1` root commit.
     pub restart: bool,
     /// Print every git command.
     pub verbose: bool,
@@ -98,7 +98,7 @@ pub fn execute(options: &Options) -> Result<()> {
                     bail!(
                         "the tip of '{remote_ref}' on remote '{}' is not a slopshot snapshot \
                          (commit {}, message '{subject}'); use --restart to replace it with \
-                         Snapshot #1",
+                         Snapshot 1",
                         config.remote,
                         short(tip)
                     );
@@ -113,7 +113,7 @@ pub fn execute(options: &Options) -> Result<()> {
     } else if let Some(snapshot) = &remote_snapshot {
         if snapshot.local_commit == local_commit {
             println!(
-                "Already up to date: {}/{} is Snapshot #{} of {} ({}).",
+                "Already up to date: {}/{} is Snapshot {} of {} ({}).",
                 config.remote,
                 remote_branch,
                 snapshot.number,
@@ -138,8 +138,14 @@ pub fn execute(options: &Options) -> Result<()> {
 
     if options.dry_run {
         match parent_ref {
-            Some(parent) => println!("Dry run: would create \"{message}\" on top of {parent}."),
-            None => println!("Dry run: would create \"{message}\" as a root commit."),
+            Some(parent) => println!(
+                "Dry run: would create \"Snapshot {number}\" \
+                 (ref {local_commit}) on top of {parent}."
+            ),
+            None => println!(
+                "Dry run: would create \"Snapshot {number}\" \
+                 (ref {local_commit}) as a root commit."
+            ),
         }
         if options.restart && remote_tip.is_some() {
             println!(
@@ -176,7 +182,7 @@ pub fn execute(options: &Options) -> Result<()> {
             config.remote, remote_branch
         );
     }
-    println!("Snapshot #{} created: {}", number, snapshot_commit);
+    println!("Snapshot {} created: {}", number, snapshot_commit);
     println!(
         "Published to {}/{} for local {} at {}.",
         config.remote, remote_branch, config.local_branch, local_commit

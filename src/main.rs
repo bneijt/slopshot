@@ -10,9 +10,9 @@ use slopshot::Options;
     version,
     about = "Publish squashed snapshot commits of your private git history",
     long_about = "Read slopshot.toml, compare the configured remote branch with the local \
-                  branch, and publish the current local tree as the next 'Snapshot #N <hash>' \
-                  commit. Development history stays local; the remote only ever sees the \
-                  snapshot chain."
+                  branch, and publish the current local tree as the next 'Snapshot N' commit. \
+                  The local commit hash is recorded in the commit body. Development \
+                  history stays local; the remote only ever sees the snapshot chain."
 )]
 struct Cli {
     /// Path to the configuration file (default: <repo>/slopshot.toml)
@@ -23,7 +23,7 @@ struct Cli {
     #[arg(long)]
     dry_run: bool,
 
-    /// Replace the remote branch with a fresh Snapshot #1 chain (force push)
+    /// Replace the remote branch with a fresh Snapshot 1 chain (force push)
     #[arg(long)]
     restart: bool,
 

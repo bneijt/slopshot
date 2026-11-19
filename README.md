@@ -5,36 +5,46 @@ snapshot commits. Your real development history stays on your private remote;
 the public remote only ever receives:
 
 ```text
-Snapshot #1 <local commit hash>
-Snapshot #2 <local commit hash>
-Snapshot #3 <local commit hash>
+Snapshot 1
+Snapshot 2
+Snapshot 3
 ```
 
 Each snapshot commit contains the **complete tree** of your local branch at that
 moment. Its parent is the previous snapshot, not the local development commit,
 so the published history is a clean line with no development commits, merges,
-or development commit messages in it.
+or development commit messages in it. The body of each snapshot records the
+local commit it came from:
+
+```text
+Snapshot 3
+
+ref 9d1c2b3a4e5f60718293a4b5c6d7e8f9a0b1c2d3
+```
 
 ```text
 local main (private):  A -- B -- C -- D -- E
                                  \          \
-published chain:        Snapshot #1 -------- Snapshot #2
+published chain:        Snapshot 1 -------- Snapshot 2
                         (tree of C)          (tree of E)
 ```
 
 ## How it decides whether to publish
 
-The local commit hash is written directly into the snapshot subject. On every
-run `slopshot`:
+The local commit hash is recorded in the snapshot body as
+`ref <hash>`. On every run `slopshot`:
 
 1. Reads `slopshot.toml` and resolves the configured local branch tip.
 2. Looks at the configured branch on the remote (fetching it if it exists).
-3. Parses the remote tip's subject as `Snapshot #N <local hash>`.
+3. Parses the remote tip's subject as `Snapshot N` and finds the `ref <hash>`
+   line in its body. Snapshots made by older versions—with `#` before the
+   number, the hash in the subject, or `Local commit:` in the body—are still
+   recognized.
 4. If that hash is the current local tip, it prints `Already up to date` and
    exits successfully without pushing anything.
 5. Otherwise it creates a commit whose tree is the current local tree and whose
-   parent is the remote snapshot tip, with the subject
-   `Snapshot #N+1 <local hash>`, and pushes that commit.
+   parent is the remote snapshot tip, with the subject `Snapshot N+1` and the
+   body `ref <hash>`, and pushes that commit.
 
 There is no local state file: the remote snapshot commit itself records which
 local commit it corresponds to. Any machine with the repository and config can
@@ -91,11 +101,11 @@ Example output:
 
 ```text
 $ slopshot
-Snapshot #3 created: 4b2f1c9a0d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a
+Snapshot 3 created: 4b2f1c9a0d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a
 Published to github/main for local main at 9d1c2b3a4e5f60718293a4b5c6d7e8f9a0b1c2d3.
 
 $ slopshot
-Already up to date: github/main is Snapshot #3 of main (9d1c2b3).
+Already up to date: github/main is Snapshot 3 of main (9d1c2b3).
 ```
 
 ## Configuration
@@ -115,8 +125,8 @@ a different file; a relative path is resolved from the current directory.
 
 | Flag              | Effect |
 | ----------------- | ------ |
-| `--dry-run`       | Show the snapshot subject and push target without creating a snapshot or pushing. It still fetches the remote branch to decide. |
-| `--restart`       | Ignore the remote history and replace the remote branch with a fresh `Snapshot #1` root commit. |
+| `--dry-run`       | Show the snapshot number, source commit, and push target without creating a snapshot or pushing. It still fetches the remote branch to decide. |
+| `--restart`       | Ignore the remote history and replace the remote branch with a fresh `Snapshot 1` root commit. |
 | `-c`, `--config`  | Use a specific config file. |
 | `-v`, `--verbose` | Print every git command that is run. |
 
@@ -131,7 +141,7 @@ replace that branch, run:
 slopshot --restart
 ```
 
-This creates a fresh `Snapshot #1` root commit and replaces the remote branch
+This creates a fresh `Snapshot 1` root commit and replaces the remote branch
 with it. When the branch already exists, the replacement is guarded with
 `--force-with-lease` against the tip that was just fetched, so a concurrent push
 will make the command fail instead of being overwritten.
@@ -160,6 +170,9 @@ will make the command fail instead of being overwritten.
   history, even if a later snapshot deletes it. Do not publish secrets.
 - Works with SHA-1 and SHA-256 repositories; both the local and remote
   repository must use the same object format.
+- Snapshot commit subjects are exactly `Snapshot N`; the full source hash
+  lives in the body as `ref <hash>`. Older snapshots using `Snapshot #N`, a
+  hash in the subject, or a `Local commit:` body are still understood.
 - Snapshot commits are created directly with `git commit-tree` and are not
   added to any local branch, so local commit hooks do not run.
 - Tags are not published, even when `push.followTags` is enabled; only the
