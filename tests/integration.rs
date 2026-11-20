@@ -71,7 +71,11 @@ impl Fixture {
     }
 
     fn init_remote(&self) -> PathBuf {
-        let remote = self.path("github.git");
+        self.init_remote_named("github.git")
+    }
+
+    fn init_remote_named(&self, name: &str) -> PathBuf {
+        let remote = self.path(name);
         fs::create_dir(&remote).expect("create remote dir");
         self.git_ok(
             &remote,
@@ -336,6 +340,7 @@ fn reports_a_missing_config_file() {
     assert_failure(&output);
     assert!(stderr(&output).contains("no config file"));
     assert!(stderr(&output).contains("--config"));
+    assert!(stderr(&output).contains("--remote"));
 }
 
 #[test]
@@ -589,4 +594,93 @@ fn recognizes_legacy_snapshots_with_the_hash_in_the_subject() {
     fixture.assert_snapshot_message(&remote, "main", 2, &second_local);
     let parent = fixture.git_ok(&remote, &["rev-parse", "refs/heads/main^"]);
     assert_eq!(parent, legacy_snapshot);
+}
+
+#[test]
+fn uses_remote_flag_without_a_config_file() {
+    let fixture = Fixture::new();
+    let remote = fixture.init_remote();
+    let work = fixture.init_work();
+    fixture.add_remote(&work, &remote);
+    let head = fixture.commit_file(&work, "hello.txt", "hello\n", "initial commit");
+
+    let output = fixture.slopshot(&work, &["--remote", "github"]);
+    assert_success(&output);
+    assert_eq!(
+        fixture.remote_subjects(&remote, "main"),
+        vec!["Snapshot 1".to_owned()]
+    );
+    fixture.assert_snapshot_message(&remote, "main", 1, &head);
+}
+
+#[test]
+fn remote_flag_overrides_config_remote_and_keeps_branches() {
+    let fixture = Fixture::new();
+    let configured_remote = fixture.init_remote_named("configured.git");
+    let flagged_remote = fixture.init_remote_named("flagged.git");
+    let work = fixture.init_work();
+    fixture.git_ok(
+        &work,
+        &[
+            "remote",
+            "add",
+            "github",
+            configured_remote.to_str().unwrap(),
+        ],
+    );
+    fixture.git_ok(
+        &work,
+        &["remote", "add", "flag", flagged_remote.to_str().unwrap()],
+    );
+    fixture.write_config(
+        &work,
+        r#"
+remote = "github"
+branch = "public"
+"#,
+    );
+    let head = fixture.commit_file(&work, "hello.txt", "hello\n", "initial commit");
+
+    let output = fixture.slopshot(&work, &["--remote", "flag"]);
+    assert_success(&output);
+    assert_eq!(
+        fixture.remote_subjects(&flagged_remote, "public"),
+        vec!["Snapshot 1".to_owned()]
+    );
+    fixture.assert_snapshot_message(&flagged_remote, "public", 1, &head);
+
+    let configured_refs =
+        fixture.git_ok(&configured_remote, &["for-each-ref", "--format=%(refname)"]);
+    assert!(
+        configured_refs.is_empty(),
+        "configured remote was modified: {configured_refs}"
+    );
+}
+
+#[test]
+fn remote_flag_does_not_hide_a_missing_explicit_config() {
+    let fixture = Fixture::new();
+    let remote = fixture.init_remote();
+    let work = fixture.init_work();
+    fixture.add_remote(&work, &remote);
+    fixture.commit_file(&work, "hello.txt", "hello\n", "initial commit");
+
+    let output = fixture.slopshot(&work, &["--config", "missing.toml", "--remote", "github"]);
+    assert_failure(&output);
+    assert!(stderr(&output).contains("config file"));
+    assert!(stderr(&output).contains("does not exist"));
+
+    let refs = fixture.git_ok(&remote, &["for-each-ref", "--format=%(refname)"]);
+    assert!(refs.is_empty(), "remote was modified: {refs}");
+}
+
+#[test]
+fn rejects_an_invalid_remote_flag() {
+    let fixture = Fixture::new();
+    let work = fixture.init_work();
+
+    let output = fixture.slopshot(&work, &["--remote", "git hub"]);
+    assert_failure(&output);
+    assert!(stderr(&output).contains("invalid --remote"));
+    assert!(stderr(&output).contains("whitespace"));
 }

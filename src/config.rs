@@ -37,6 +37,25 @@ impl Config {
         Ok(config)
     }
 
+    /// Build a config that only supplies a remote name, using the default
+    /// branches. This is used when `--remote` is passed without a config file.
+    pub fn from_remote(remote: &str) -> Result<Self> {
+        let config = Self {
+            remote: remote.to_owned(),
+            local_branch: default_branch(),
+            branch: None,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    /// Override the configured remote, keeping the configured branch settings.
+    pub fn with_remote(mut self, remote: &str) -> Result<Self> {
+        self.remote = remote.to_owned();
+        self.validate()?;
+        Ok(self)
+    }
+
     pub fn remote_branch(&self) -> &str {
         self.branch.as_deref().unwrap_or(&self.local_branch)
     }
@@ -112,6 +131,39 @@ remot = "typo"
         )
         .unwrap_err();
         assert!(error.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn from_remote_uses_default_branches() {
+        let config = Config::from_remote("github").unwrap();
+        assert_eq!(config.remote, "github");
+        assert_eq!(config.local_branch, "main");
+        assert_eq!(config.remote_branch(), "main");
+    }
+
+    #[test]
+    fn with_remote_keeps_configured_branches() {
+        let config: Config = toml::from_str(
+            r#"
+remote = "old"
+local_branch = "trunk"
+branch = "public"
+"#,
+        )
+        .unwrap();
+        let config = config.with_remote("new").unwrap();
+        assert_eq!(config.remote, "new");
+        assert_eq!(config.local_branch, "trunk");
+        assert_eq!(config.remote_branch(), "public");
+    }
+
+    #[test]
+    fn from_remote_rejects_invalid_names() {
+        let error = Config::from_remote("").unwrap_err();
+        assert!(error.to_string().contains("must not be empty"));
+
+        let error = Config::from_remote("git hub").unwrap_err();
+        assert!(error.to_string().contains("whitespace"));
     }
 
     #[test]

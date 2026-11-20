@@ -15,6 +15,9 @@ use snapshot::Snapshot;
 pub struct Options {
     /// Use this config file instead of `<repo>/slopshot.toml`.
     pub config_path: Option<PathBuf>,
+    /// Publish to this remote instead of the one from the config file. When
+    /// set, the config file is optional.
+    pub remote: Option<String>,
     /// Report what would happen without creating or pushing anything.
     pub dry_run: bool,
     /// Replace the remote branch with a fresh `Snapshot 1` root commit.
@@ -30,13 +33,25 @@ pub fn execute(options: &Options) -> Result<()> {
         .config_path
         .clone()
         .unwrap_or_else(|| git.root().join(CONFIG_FILE_NAME));
-    if !config_path.exists() {
+    let config = if config_path.exists() {
+        let config = Config::load(&config_path)?;
+        match &options.remote {
+            Some(remote) => config
+                .with_remote(remote)
+                .with_context(|| format!("invalid --remote '{remote}'"))?,
+            None => config,
+        }
+    } else if let Some(remote) = &options.remote {
+        if options.config_path.is_some() {
+            bail!("config file '{}' does not exist", config_path.display());
+        }
+        Config::from_remote(remote).with_context(|| format!("invalid --remote '{remote}'"))?
+    } else {
         bail!(
-            "no config file at '{}'; create one or pass --config <FILE>",
+            "no config file at '{}'; create one, pass --config <FILE>, or pass --remote <NAME>",
             config_path.display()
         );
-    }
-    let config = Config::load(&config_path)?;
+    };
     let remote_branch = config.remote_branch().to_owned();
 
     git.validate_branch(&config.local_branch)

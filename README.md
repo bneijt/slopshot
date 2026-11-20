@@ -34,7 +34,8 @@ published chain:        Snapshot 1 -------- Snapshot 2
 The local commit hash is recorded in the snapshot body as
 `ref <hash>`. On every run `slopshot`:
 
-1. Reads `slopshot.toml` and resolves the configured local branch tip.
+1. Reads `slopshot.toml` if present, or takes the remote from `--remote`, and
+   resolves the configured local branch tip.
 2. Looks at the configured branch on the remote (fetching it if it exists).
 3. Parses the remote tip's subject as `Snapshot N` and finds the `ref <hash>`
    line in its body. Snapshots made by older versions—with `#` before the
@@ -47,8 +48,8 @@ The local commit hash is recorded in the snapshot body as
    body `ref <hash>`, and pushes that commit.
 
 There is no local state file: the remote snapshot commit itself records which
-local commit it corresponds to. Any machine with the repository and config can
-publish the next snapshot.
+local commit it corresponds to. Any machine with the repository and access to
+the remote can publish the next snapshot.
 
 ## Requirements
 
@@ -90,7 +91,17 @@ remote = "github"
 # branch = "main"
 ```
 
-Then preview and publish:
+If you don't want a config file at all, pass the remote directly:
+
+```sh
+slopshot --remote github
+```
+
+Without a config file this uses the default `main` branches. When a config file
+exists, `--remote` overrides its `remote` value while keeping its branch
+settings. An explicitly passed `--config` file must still exist.
+
+Then preview and publish (add `--remote github` if you skipped the config file):
 
 ```sh
 slopshot --dry-run
@@ -112,22 +123,28 @@ Already up to date: github/main is Snapshot 3 of main (9d1c2b3).
 
 | Key            | Required | Default           | Meaning                              |
 | -------------- | -------- | ----------------- | ------------------------------------ |
-| `remote`       | yes      | —                 | Name of the local git remote to push to. |
+| `remote`       | yes*     | —                 | Name of the local git remote to push to. |
 | `local_branch` | no       | `main`            | Local branch whose committed tree is published. |
 | `branch`       | no       | `local_branch`    | Branch to update on the remote.       |
 
 Unknown keys are rejected so typos do not silently do the wrong thing.
 
+`remote` is required in the file, but the file itself is optional when
+`--remote <NAME>` is used. If both are present, `--remote` overrides the
+configured remote while `local_branch` and `branch` still come from the file.
+
 The file is looked up at the repository root. Use `--config <FILE>` to point at
-a different file; a relative path is resolved from the current directory.
+a different file; a relative path is resolved from the current directory. An
+explicitly passed config file must exist.
 
 ## Command-line flags
 
 | Flag              | Effect |
 | ----------------- | ------ |
+| `-c`, `--config`  | Use a specific config file. |
+| `-r`, `--remote`  | Use this remote directly, making the config file optional. Overrides the config's `remote`. |
 | `--dry-run`       | Show the snapshot number, source commit, and push target without creating a snapshot or pushing. It still fetches the remote branch to decide. |
 | `--restart`       | Ignore the remote history and replace the remote branch with a fresh `Snapshot 1` root commit. |
-| `-c`, `--config`  | Use a specific config file. |
 | `-v`, `--verbose` | Print every git command that is run. |
 
 ## First publish into an existing repository

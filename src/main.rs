@@ -9,15 +9,20 @@ use slopshot::Options;
     name = "slopshot",
     version,
     about = "Publish squashed snapshot commits of your private git history",
-    long_about = "Read slopshot.toml, compare the configured remote branch with the local \
-                  branch, and publish the current local tree as the next 'Snapshot N' commit. \
-                  The local commit hash is recorded in the commit body. Development \
-                  history stays local; the remote only ever sees the snapshot chain."
+    long_about = "Read slopshot.toml (or use --remote), compare the configured remote \
+                  branch with the local branch, and publish the current local tree as the \
+                  next 'Snapshot N' commit. The local commit hash is recorded in the commit \
+                  body. Development history stays local; the remote only ever sees the \
+                  snapshot chain."
 )]
 struct Cli {
     /// Path to the configuration file (default: <repo>/slopshot.toml)
     #[arg(short, long, value_name = "FILE")]
     config: Option<PathBuf>,
+
+    /// Remote name to publish to; makes slopshot.toml optional
+    #[arg(short = 'r', long, value_name = "NAME")]
+    remote: Option<String>,
 
     /// Show what would be done, without creating a snapshot or pushing
     #[arg(long)]
@@ -39,6 +44,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let options = Options {
         config_path: cli.config,
+        remote: cli.remote,
         dry_run: cli.dry_run,
         restart: cli.restart,
         verbose: cli.verbose,
